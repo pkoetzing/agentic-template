@@ -14,20 +14,61 @@
 #   -PathsOnly          Only output path variables (no validation)
 #   -Help, -h           Show help message
 
-# Deprecated: avoid typed [switch] params to keep compatibility with constrained language-mode and -File invocation.
-$Json = $false; $RequireTasks = $false; $IncludeTasks = $false; $PathsOnly = $false; $Help = $false
-if ($args) {
-    if ($args -contains '-Json' -or $args -contains '-json' -or $args -contains '/Json') { $Json = $true }
-    if ($args -contains '-RequireTasks' -or $args -contains '/RequireTasks') { $RequireTasks = $true }
-    if ($args -contains '-IncludeTasks' -or $args -contains '/IncludeTasks') { $IncludeTasks = $true }
-    if ($args -contains '-PathsOnly' -or $args -contains '/PathsOnly') { $PathsOnly = $true }
-    if ($args -contains '-Help' -or $args -contains '-h' -or $args -contains '/?') { $Help = $true }
-}
-
 $ErrorActionPreference = 'Stop'
 
+$flags = @{
+    'Json' = $false
+    'RequireTasks' = $false
+    'IncludeTasks' = $false
+    'PathsOnly' = $false
+    'Help' = $false
+}
+
+foreach ($arg in $args) {
+    $raw = ''
+    if ($null -ne $arg) { $raw = $arg.ToString() }
+    $normalized = $raw.ToLowerInvariant()
+    switch ($normalized) {
+        '-json'          { $flags['Json'] = $true; continue }
+        '-requiretasks'  { $flags['RequireTasks'] = $true; continue }
+        '-includetasks'  { $flags['IncludeTasks'] = $true; continue }
+        '-pathsonly'     { $flags['PathsOnly'] = $true; continue }
+        '-help'          { $flags['Help'] = $true; continue }
+        '-h'             { $flags['Help'] = $true; continue }
+        default {
+            Write-Error "Unknown argument: $arg"
+            exit 1
+        }
+    }
+}
+
+function Escape-JsonValue {
+    param([string]$Value)
+    if ($null -eq $Value) { return '' }
+    $escaped = $Value -replace '\\','\\\\'
+    return ($escaped -replace '"','\\"')
+}
+
+function New-JsonObject {
+    param([hashtable]$Map)
+    $parts = @()
+    foreach ($key in $Map.Keys) {
+        $value = $Map[$key]
+        if ($value -is [System.Collections.IEnumerable] -and -not ($value -is [string])) {
+            $elements = @()
+            foreach ($item in $value) {
+                $elements += '"{0}"' -f (Escape-JsonValue $item)
+            }
+            $parts += '"{0}":[{1}]' -f $key, ($elements -join ',')
+        } else {
+            $parts += '"{0}":"{1}"' -f $key, (Escape-JsonValue ($value -as [string]))
+        }
+    }
+    return '{' + ($parts -join ',') + '}'
+}
+
 # Show help if requested
-if ($Help) {
+if ($flags['Help']) {
     Write-Output @"
 Usage: check-prerequisites.ps1 [OPTIONS]
 
@@ -60,50 +101,55 @@ EXAMPLES:
 # Get feature paths and validate branch
 $paths = Get-FeaturePathsEnv
 
-if (-not (Test-FeatureBranch -Branch $paths.CURRENT_BRANCH -HasGit:$paths.HAS_GIT)) {
+function Get-PathValue {
+    param([string]$Key)
+    return $paths[$Key]
+}
+
+if (-not (Test-FeatureBranch -Branch (Get-PathValue 'CURRENT_BRANCH') -HasGit (Get-PathValue 'HAS_GIT'))) {
     exit 1
 }
 
 # If paths-only mode, output paths and exit (support combined -Json -PathsOnly)
-if ($PathsOnly) {
-    if ($Json) {
-        # Build a minimal JSON string using primitive types to be compatible with constrained language
-        $escRepoRoot = ($paths.REPO_ROOT -replace '"','\\"')
-        $escBranch = ($paths.CURRENT_BRANCH -replace '"','\\"')
-        $escFeatureDir = ($paths.FEATURE_DIR -replace '"','\\"')
-        $escFeatureSpec = ($paths.FEATURE_SPEC -replace '"','\\"')
-        $escImplPlan = ($paths.IMPL_PLAN -replace '"','\\"')
-        $escTasks = ($paths.TASKS -replace '"','\\"')
-        $json = '{"REPO_ROOT":"' + $escRepoRoot + '","BRANCH":"' + $escBranch + '","FEATURE_DIR":"' + $escFeatureDir + '","FEATURE_SPEC":"' + $escFeatureSpec + '","IMPL_PLAN":"' + $escImplPlan + '","TASKS":"' + $escTasks + '"}'
-        Write-Output $json
+if ($flags['PathsOnly']) {
+    if ($flags['Json']) {
+        $map = @{
+            'REPO_ROOT'    = (Get-PathValue 'REPO_ROOT')
+            'BRANCH'       = (Get-PathValue 'CURRENT_BRANCH')
+            'FEATURE_DIR'  = (Get-PathValue 'FEATURE_DIR')
+            'FEATURE_SPEC' = (Get-PathValue 'FEATURE_SPEC')
+            'IMPL_PLAN'    = (Get-PathValue 'IMPL_PLAN')
+            'TASKS'        = (Get-PathValue 'TASKS')
+        }
+        Write-Output (New-JsonObject -Map $map)
     } else {
-        Write-Output "REPO_ROOT: $($paths.REPO_ROOT)"
-        Write-Output "BRANCH: $($paths.CURRENT_BRANCH)"
-        Write-Output "FEATURE_DIR: $($paths.FEATURE_DIR)"
-        Write-Output "FEATURE_SPEC: $($paths.FEATURE_SPEC)"
-        Write-Output "IMPL_PLAN: $($paths.IMPL_PLAN)"
-        Write-Output "TASKS: $($paths.TASKS)"
+        Write-Output "REPO_ROOT: $(Get-PathValue 'REPO_ROOT')"
+        Write-Output "BRANCH: $(Get-PathValue 'CURRENT_BRANCH')"
+        Write-Output "FEATURE_DIR: $(Get-PathValue 'FEATURE_DIR')"
+        Write-Output "FEATURE_SPEC: $(Get-PathValue 'FEATURE_SPEC')"
+        Write-Output "IMPL_PLAN: $(Get-PathValue 'IMPL_PLAN')"
+        Write-Output "TASKS: $(Get-PathValue 'TASKS')"
     }
     exit 0
 }
 
 # Validate required directories and files
-if (-not (Test-Path $paths.FEATURE_DIR -PathType Container)) {
-    Write-Output "ERROR: Feature directory not found: $($paths.FEATURE_DIR)"
-    Write-Output "Run /specify first to create the feature structure."
+if (-not (Test-Path (Get-PathValue 'FEATURE_DIR') -PathType Container)) {
+    Write-Output "ERROR: Feature directory not found: $(Get-PathValue 'FEATURE_DIR')"
+    Write-Output "Run /speckit.specify first to create the feature structure."
     exit 1
 }
 
-if (-not (Test-Path $paths.IMPL_PLAN -PathType Leaf)) {
-    Write-Output "ERROR: plan.md not found in $($paths.FEATURE_DIR)"
-    Write-Output "Run /plan first to create the implementation plan."
+if (-not (Test-Path (Get-PathValue 'IMPL_PLAN') -PathType Leaf)) {
+    Write-Output "ERROR: plan.md not found in $(Get-PathValue 'FEATURE_DIR')"
+    Write-Output "Run /speckit.plan first to create the implementation plan."
     exit 1
 }
 
 # Check for tasks.md if required
-if ($RequireTasks -and -not (Test-Path $paths.TASKS -PathType Leaf)) {
-    Write-Output "ERROR: tasks.md not found in $($paths.FEATURE_DIR)"
-    Write-Output "Run /tasks first to create the task list."
+if ($flags['RequireTasks'] -and -not (Test-Path (Get-PathValue 'TASKS') -PathType Leaf)) {
+    Write-Output "ERROR: tasks.md not found in $(Get-PathValue 'FEATURE_DIR')"
+    Write-Output "Run /speckit.tasks first to create the task list."
     exit 1
 }
 
@@ -111,41 +157,40 @@ if ($RequireTasks -and -not (Test-Path $paths.TASKS -PathType Leaf)) {
 $docs = @()
 
 # Always check these optional docs
-if (Test-Path $paths.RESEARCH) { $docs += 'research.md' }
-if (Test-Path $paths.DATA_MODEL) { $docs += 'data-model.md' }
+if (Test-Path (Get-PathValue 'RESEARCH')) { $docs += 'research.md' }
+if (Test-Path (Get-PathValue 'DATA_MODEL')) { $docs += 'data-model.md' }
 
 # Check contracts directory (only if it exists and has files)
-if ((Test-Path $paths.CONTRACTS_DIR) -and (Get-ChildItem -Path $paths.CONTRACTS_DIR -ErrorAction SilentlyContinue | Select-Object -First 1)) {
+if ((Test-Path (Get-PathValue 'CONTRACTS_DIR')) -and (Get-ChildItem -Path (Get-PathValue 'CONTRACTS_DIR') -ErrorAction SilentlyContinue | Select-Object -First 1)) {
     $docs += 'contracts/'
 }
 
-if (Test-Path $paths.QUICKSTART) { $docs += 'quickstart.md' }
+if (Test-Path (Get-PathValue 'QUICKSTART')) { $docs += 'quickstart.md' }
 
 # Include tasks.md if requested and it exists
-if ($IncludeTasks -and (Test-Path $paths.TASKS)) {
+if ($flags['IncludeTasks'] -and (Test-Path (Get-PathValue 'TASKS'))) {
     $docs += 'tasks.md'
 }
 
 # Output results
-if ($Json) {
-    # Build a simple JSON output listing the feature dir and available docs
-    $escFeatureDir = ($paths.FEATURE_DIR -replace '"','\\"')
-    $escapedDocs = $docs | ForEach-Object { '"' + ($_ -replace '"','\\"') + '"' }
-    $docsJson = '[' + ($escapedDocs -join ',') + ']'
-    $json = '{"FEATURE_DIR":"' + $escFeatureDir + '","AVAILABLE_DOCS":' + $docsJson + '}'
-    Write-Output $json
+if ($flags['Json']) {
+    $payload = @{
+        'FEATURE_DIR' = (Get-PathValue 'FEATURE_DIR')
+        'AVAILABLE_DOCS' = $docs
+    }
+    Write-Output (New-JsonObject -Map $payload)
 } else {
     # Text output
-    Write-Output "FEATURE_DIR:$($paths.FEATURE_DIR)"
+    Write-Output "FEATURE_DIR:$(Get-PathValue 'FEATURE_DIR')"
     Write-Output "AVAILABLE_DOCS:"
 
     # Show status of each potential document
-    Test-FileExists -Path $paths.RESEARCH -Description 'research.md' | Out-Null
-    Test-FileExists -Path $paths.DATA_MODEL -Description 'data-model.md' | Out-Null
-    Test-DirHasFiles -Path $paths.CONTRACTS_DIR -Description 'contracts/' | Out-Null
-    Test-FileExists -Path $paths.QUICKSTART -Description 'quickstart.md' | Out-Null
+    Test-FileExists -Path (Get-PathValue 'RESEARCH') -Description 'research.md' | Out-Null
+    Test-FileExists -Path (Get-PathValue 'DATA_MODEL') -Description 'data-model.md' | Out-Null
+    Test-DirHasFiles -Path (Get-PathValue 'CONTRACTS_DIR') -Description 'contracts/' | Out-Null
+    Test-FileExists -Path (Get-PathValue 'QUICKSTART') -Description 'quickstart.md' | Out-Null
 
-    if ($IncludeTasks) {
-        Test-FileExists -Path $paths.TASKS -Description 'tasks.md' | Out-Null
+    if ($flags['IncludeTasks']) {
+        Test-FileExists -Path (Get-PathValue 'TASKS') -Description 'tasks.md' | Out-Null
     }
 }

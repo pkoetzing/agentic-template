@@ -1,21 +1,25 @@
 #!/usr/bin/env pwsh
 # Create a new feature
-$CmdletBinding = $null
-# Avoid typed [switch] param to keep compatibility with -File invocation and CLM
-$Json = $false
-$FeatureDescription = @()
-if ($args) {
-    if ($args -contains '-Json' -or $args -contains '-json') { $Json = $true }
-    # Collect remaining args as feature description (skip known flags)
-    $FeatureDescription = $args | Where-Object { $_ -notin @('-Json','-json') }
-}
 $ErrorActionPreference = 'Stop'
 
-if (-not $FeatureDescription -or $FeatureDescription.Count -eq 0) {
+$flags = @{
+    'Json' = $false
+}
+
+$descriptionParts = @()
+foreach ($arg in $args) {
+    if ($null -ne $arg -and $arg.ToString().ToLowerInvariant() -eq '-json') {
+        $flags['Json'] = $true
+    } else {
+        $descriptionParts += $arg
+    }
+}
+
+if (-not $descriptionParts -or $descriptionParts.Count -eq 0) {
     Write-Error "Usage: ./create-new-feature.ps1 [-Json] <feature description>"
     exit 1
 }
-$featureDesc = ($FeatureDescription -join ' ').Trim()
+$featureDesc = ($descriptionParts -join ' ').Trim()
 
 # Resolve repository root. Prefer git information when available, but fall back
 # to searching for repository markers so the workflow still functions in repositories that
@@ -103,10 +107,21 @@ if (Test-Path $template) {
 # Set the SPECIFY_FEATURE environment variable for the current session
 $env:SPECIFY_FEATURE = $branchName
 
-if ($Json) {
-    # Return a simple JSON string built from primitive values so this works under Constrained Language Mode
-    $escapedSpecFile = $specFile -replace '"', '\\"'
-    $json = '{"BRANCH_NAME":"' + $branchName + '","SPEC_FILE":"' + $escapedSpecFile + '","FEATURE_NUM":"' + $featureNum + '","HAS_GIT":' + ($hasGit -eq $true).ToString().ToLower() + '}'
+function Escape-JsonString {
+    param([string]$Value)
+    if ($null -eq $Value) { return '' }
+    $escaped = $Value -replace '\\','\\\\'
+    return ($escaped -replace '"','\\"')
+}
+
+if ($flags['Json']) {
+    $json = '{'
+    $json += '"BRANCH_NAME":"{0}",' -f (Escape-JsonString $branchName)
+    $json += '"SPEC_FILE":"{0}",' -f (Escape-JsonString $specFile)
+    $json += '"FEATURE_NUM":"{0}",' -f (Escape-JsonString $featureNum)
+    $hasGitLiteral = if ($hasGit) { 'true' } else { 'false' }
+    $json += '"HAS_GIT":{0}' -f $hasGitLiteral
+    $json += '}'
     Write-Output $json
 } else {
     Write-Output "BRANCH_NAME: $branchName"

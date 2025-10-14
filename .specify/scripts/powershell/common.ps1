@@ -97,7 +97,7 @@ function Get-FeaturePathsEnv {
     $currentBranch = Get-CurrentBranch
     $hasGit = Test-HasGit
     $featureDir = Get-FeatureDir -RepoRoot $repoRoot -Branch $currentBranch
-    # Return a plain hashtable rather than a PSCustomObject so the script can run in constrained language mode.
+
     return @{
         'REPO_ROOT'      = $repoRoot
         'CURRENT_BRANCH' = $currentBranch
