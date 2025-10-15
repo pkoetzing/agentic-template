@@ -10,12 +10,17 @@ This repository uses GitHub Copilot to assist with code suggestions, documentati
 - Follow existing code style and conventions in this repository (naming, formatting, comments).
 - Add comments or docstrings for complex functions or classes.
 - When suggesting examples, keep them minimal and focused.
+- Only implement the bare minimum code needed to satisfy the current request.
+- Work in small, incremental steps and avoid rushing ahead.
+- Follow the "You Ain't Gonna Need It" (YAGNI) principle.
+- Keep solutions easy to change.
 
 ## Testing & Robustness
 
 - Include error handling where appropriate.
 - When writing tests, cover happy path and edge cases.
 - Prefer deterministic outputs to reduce flaky tests.
+- Avoid mocked tests; unit tests must verify actual behavior, not just theoretical outcomes.
 
 ## Documentation
 

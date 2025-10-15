@@ -28,8 +28,10 @@ A Python script without a user interface or command line arguments, but with a c
 
 ### spec.md
 
-Definition of what to build, requirements and user stories.  
+Create a separate specification file for each feature or user story. Define what to build, requirements and user stories. 
+No technical details, just business logic.
 **Creates a new feature branch from main.**
+The first 20 letters of the first line are used as branch name.
 
 ```
 /speckit.specify  
@@ -91,3 +93,9 @@ actices that apply to specific file patterns or entire projects
 - `Awesome Chat Modes` - Specialized AI personas and conversation modes for different roles and contexts
 
 - `Awesome Collections` - Curated collections of related prompts, instructions, and chat modes organized around specific themes and workflows
+
+## Alternative spec driven development tools
+
+- OpenSpec: https://github.com/Fission-AI/OpenSpec
+- Amazon Kiro: https://kiro.dev/
+
